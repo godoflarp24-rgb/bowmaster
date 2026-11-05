@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bowmaster - Legends Awaken</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#080d19;color:white;font-family:Arial;overflow:hidden}
+canvas{display:block;width:100vw;height:100vh}
+.panel{
+ position:fixed;z-index:3;background:#101a2de8;
+ border:1px solid #6d83a9;border-radius:13px;padding:12px;
+ box-shadow:0 5px 25px #0008
+}
+#hud{top:12px;left:12px;width:260px;font-size:13px}
+.bar{height:10px;background:#30394a;border-radius:10px;overflow:hidden;margin:5px 0 9px}
+.fill{height:100%;transition:width .15s}
+#hp{background:linear-gradient(90deg,#d72c43,#ff7474)}
+#mana{background:linear-gradient(90deg,#176de1,#6ee8ff)}
+#exp{background:linear-gradient(90deg,#b47aff,#f1b6ff)}
+#bossHud{display:none;top:12px;left:50%;transform:translateX(-50%);width:min(380px,70vw);text-align:center}
+#bossFill{background:linear-gradient(90deg,#9d2aff,#ff4e8a)}
+#controls{bottom:12px;left:12px;font-size:12px;line-height:1.7}
+#skills{bottom:12px;right:12px;font-size:12px;line-height:1.7}
+#message{
+ position:fixed;z-index:4;top:40%;left:50%;
+ transform:translate(-50%,-50%);font-size:clamp(25px,5vw,48px);
+ font-weight:900;color:#ffe18a;text-shadow:0 4px 12px #000;
+ text-align:center;pointer-events:none
+}
+#screen{
+ position:fixed;inset:0;z-index:10;display:flex;
+ align-items:center;justify-content:center;flex-direction:column;
+ text-align:center;background:linear-gradient(#081021eF,#15152bed);
+ padding:20px
+}
+h1{font-size:clamp(35px,7vw,70px);margin:5px;color:#f5c65e;
+ text-shadow:0 0 25px #e88d32}
+button{
+ border:0;border-radius:10px;padding:13px 26px;
+ background:linear-gradient(120deg,#f8d16d,#d77b28);
+ color:#241506;font-weight:bold;font-size:16px;cursor:pointer
+}
+#upgrade{display:none;position:fixed;inset:0;z-index:8;
+ background:#080d19eF;align-items:center;justify-content:center;
+ flex-direction:column;text-align:center}
+.upgrades{display:flex;flex-wrap:wrap;justify-content:center;gap:12px}
+.upgradeCard{
+ width:150px;padding:17px;background:#182746;border:1px solid #9bb2d9;
+ border-radius:12px;cursor:pointer
+}
+.upgradeCard:hover{background:#344e79}
+.muted{color:#b8c9e7;font-size:13px;line-height:1.7}
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="hud" class="panel">
+ <b id="level">LEVEL 1</b>
+ <span style="float:right" id="coins">🪙 0</span>
+ <div>❤️ HP <span id="hpText">100</span></div>
+ <div class="bar"><div id="hp" class="fill" style="width:100%"></div></div>
+ <div>🔷 MANA <span id="manaText">100</span></div>
+ <div class="bar"><div id="mana" class="fill" style="width:100%"></div></div>
+ <div>⭐ EXP <span id="expText">0/100</span></div>
+ <div class="bar"><div id="exp" class="fill" style="width:0%"></div></div>
+ <div id="stats">Damage: 20 | Speed: 4</div>
+</div>
+
+<div id="bossHud" class="panel">
+ <b id="bossName">BOSS</b>
+ <div class="bar"><div id="bossFill" class="fill" style="width:100%"></div></div>
+</div>
+
+<div id="controls" class="panel">
+ <b>🎮 MOVEMENT</b><br>
+ A / D : Bergerak<br>
+ W : Lompat<br>
+ SHIFT : Berlari<br>
+ SPACE : Menembak<br>
+ ESC : Pause
+</div>
+
+<div id="skills" class="panel">
+ <b>✨ SKILLS</b><br>
+ 1 : Fire Arrow<br>
+ 2 : Lightning<br>
+ 3 : Heal<br>
+ 4 : Ultimate
+</div>
+
+<div id="message"></div>
+
+<div id="screen">
+ <h1>🏹 BOWMASTER</h1>
+ <h2>LEGENDS AWAKEN</h2>
+ <p class="muted">
+ Jelajahi dunia, kalahkan monster, kumpulkan koin,<br>
+ dan hadapi 20 boss legendaris sampai level 100.
+ </p>
+ <button onclick="startGame()">START ADVENTURE</button>
+ <p class="muted">Keyboard: A/D bergerak · W lompat · Space menembak</p>
+</div>
+
+<div id="upgrade">
+ <h1>LEVEL UP!</h1>
+ <p>Pilih satu peningkatan kemampuan</p>
+ <div class="upgrades" id="upgradeCards"></div>
+</div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+let W,H;
+function resize(){W=canvas.width=innerWidth;H=canvas.height=innerHeight}
+resize();addEventListener("resize",resize);
+
+const names=[
+"Inferno Dragon","Shadow King","Thunder Titan","Void Demon",
+"Blood Phantom","Frost Colossus","Soul Reaper","Chaos Beast",
+"Dark Emperor","Ancient God","Hell General","Storm Lord",
+"Nightmare","Death Dragon","Abyss King","Eternal Devil",
+"Cosmic Titan","Destroyer","Void God","The Final King"
+];
+const colors=["#ff593b","#a45aff","#ffe06a","#7935c8","#e43c67",
+"#69dfff","#c3b5e9","#f58a36","#bd244c","#f5c76c",
+"#ad392a","#50baff","#7651a0","#e54b37","#682a94",
+"#bd3457","#7f9aff","#d34435","#9b50ff","#ffe779"];
+
+let game="menu",level=1,coins=0,exp=0,expNeed=100;
+let camera=0,shake=0,last=0;
+let player,enemy,arrows=[],shots=[],particles=[],effects=[];
+let keys={},boss=false,world=2600,spawnTimer=0;
+let messageTimer=0,paused=false;
+
+const ground=()=>H-90;
+
+function startGame(){
+ level=1;coins=0;exp=0;expNeed=100;camera=0;
+ player={
+  x:170,y:ground()-65,vx:0,vy:0,
+  hp:100,maxHp:100,mana:100,
+  damage:20,speed:4.2,attackSpeed:1,
+  face:1,grounded:true,inv:0,
+  anim:0,attack:0,run:false
+ };
+ arrows=[];shots=[];particles=[];effects=[];
+ keys={};paused=false;game="play";
+ document.getElementById("screen").style.display="none";
+ spawnEnemy();updateHUD();last=performance.now();
+ requestAnimationFrame(loop);
+}
+
+function spawnEnemy(){
+ boss=level%5===0;
+ const idx=Math.max(0,Math.floor(level/5)-1);
+ enemy={
+  x:player.x+850,y:ground()-70,
+  hp:boss?450+level*65:75+level*14,
+  maxHp:boss?450+level*65:75+level*14,
+  color:boss?colors[idx]:"#c34e66",
+  name:boss?names[idx]:"Shadow Hunter",
+  boss,face:-1,attack:1.5,anim:0,
+  phase:0
+ };
+ document.getElementById("bossHud").style.display=boss?"block":"none";
+}
+
+function updateHUD(){
+ const set=(id,v)=>document.getElementById(id).textContent=v;
+ set("level","LEVEL "+level);
+ set("coins","🪙 "+coins);
+ set("hpText",Math.ceil(player.hp)+"/"+player.maxHp);
+ set("manaText",Math.floor(player.mana));
+ set("expText",exp+"/"+expNeed);
+ document.getElementById("hp").style.width=player.hp/player.maxHp*100+"%";
+ document.getElementById("mana").style.width=player.mana+"%";
+ document.getElementById("exp").style.width=exp/expNeed*100+"%";
+ set("stats","Damage: "+Math.round(player.damage)+" | Speed: "+player.speed);
+ if(boss){
+  set("bossName","☠ "+enemy.name);
+  document.getElementById("bossFill").style.width=
+   Math.max(0,enemy.hp/enemy.maxHp*100)+"%";
+ }
+}
+
+function popup(text){
+ const el=document.getElementById("message");
+ el.textContent=text;messageTimer=1.5;
+}
+
+function particlesAt(x,y,color,n=15){
+ for(let i=0;i<n;i++){
+  let a=Math.random()*Math.PI*2,s=1+Math.random()*6;
+  particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,
+   life:.4+Math.random()*.6,color,size:2+Math.random()*5});
+ }
+}
+
+function shoot(){
+ if(game!=="play"||paused)return;
+ arrows.push({
+  x:player.x+player.face*27,y:player.y+25,
+  vx:player.face*13,damage:player.damage,
+  color:"#ffe6a1",size:5
+ });
+ player.attack=.2;
+ particlesAt(player.x+player.face*25,player.y+25,"#ffe6a1",4);
+}
+
+function skill(n){
+ if(game!=="play"||paused)return;
+ if(n===1&&player.mana>=15){
+  player.mana-=15;
+  arrows.push({x:player.x,y:player.y+25,vx:player.face*11,
+   damage:player.damage*3,color:"#ff642f",size:14,fire:true});
+  particlesAt(player.x,player.y+25,"#ff642f",20);
+  popup("🔥 FIRE ARROW!");
+ }
+ if(n===2&&player.mana>=25){
+  player.mana-=25;
+  enemy.hp-=player.damage*4;
+  effects.push({type:"lightning",x:enemy.x,life:.5});
+  particlesAt(enemy.x,enemy.y+25,"#63eaff",35);
+  shake=15;popup("⚡ THUNDER STRIKE!");
+ }
+ if(n===3&&player.mana>=20){
+  player.mana-=20;
+  player.hp=Math.min(player.maxHp,player.hp+45);
+  particlesAt(player.x,player.y,"#54ff9b",25);
+  popup("💚 HEAL!");
+ }
+ if(n===4&&player.mana>=60){
+  player.mana-=60;
+  enemy.hp-=player.damage*9;
+  particlesAt(enemy.x,enemy.y,"#d78aff",65);
+  shake=24;popup("🌟 LEGENDARY ULTIMATE!");
+ }
+ updateHUD();
+}
+
+addEventListener("keydown",e=>{
+ const k=e.key.toLowerCase();
+ if([" ","arrowleft","arrowright","arrowup","arrowdown"].includes(k))e.preventDefault();
+ if(keys[k]||e.repeat)return;
+ keys[k]=true;
+
+ if(k==="escape"&&game==="play"){
+  paused=!paused;popup(paused?"PAUSED":"RESUME");
+ }
+ if(game!=="play"||paused)return;
+ if(e.code==="Space")shoot();
+ if(k==="1")skill(1);
+ if(k==="2")skill(2);
+ if(k==="3")skill(3);
+ if(k==="4")skill(4);
+ if(k==="w"&&player.grounded){
+  player.vy=-13;player.grounded=false;
+  particlesAt(player.x,ground(),"#d5edff",8);
+ }
+});
+addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
+
+function enemyAttack(dt){
+ enemy.attack-=dt;
+ if(enemy.attack>0)return;
+ enemy.attack=enemy.boss?.95:1.8;
+ const dir=player.x>enemy.x?1:-1;
+ enemy.face=dir;
+
+ let count=enemy.boss?5:1;
+ for(let i=0;i<count;i++){
+  let spread=enemy.boss?(i-2)*1.6:0;
+  shots.push({
+   x:enemy.x,y:enemy.y+25,
+   vx:dir*(enemy.boss?5.5:5),
+   vy:spread,
+   damage:enemy.boss?14+level*.6:9+level*.3,
+   color:enemy.boss?enemy.color:"#ff6877",size:enemy.boss?9:6
+  });
+ }
+ if(enemy.boss){
+  popup("⚠ "+enemy.name+" ATTACK!");
+  if(Math.random()<.35){
+   effects.push({type:"meteor",x:player.x,life:1});
+  }
+ }
+}
+
+function levelUp(){
+ level++;
+ exp-=expNeed;
+ expNeed=Math.floor(expNeed*1.25);
+ player.hp=Math.min(player.maxHp,player.hp+25);
+ player.mana=100;
+ game="upgrade";
+ const choices=[
+  ["⚔️ Damage +25%","damage"],
+  ["❤️ Max HP +30","hp"],
+  ["🏃 Speed +0.7","speed"],
+  ["🔷 Mana +30","mana"]
+ ];
+ const container=document.getElementById("upgradeCards");
+ container.innerHTML="";
+ choices.sort(()=>Math.random()-.5).forEach(([label,type])=>{
+  const card=document.createElement("div");
+  card.className="upgradeCard";
+  card.textContent=label;
+  card.onclick=()=>{
+   if(type==="damage")player.damage*=1.25;
+   if(type==="hp"){player.maxHp+=30;player.hp+=30}
+   if(type==="speed")player.speed+=.7;
+   if(type==="mana")player.mana=100;
+   document.getElementById("upgrade").style.display="none";
+   game="play";spawnEnemy();updateHUD();
+   popup("LEVEL "+level);
+   last=performance.now();requestAnimationFrame(loop);
+  };
+  container.appendChild(card);
+ });
+ document.getElementById("upgrade").style.display="flex";
+}
+
+function update(dt){
+ if(game!=="play"||paused)return;
+
+ player.vx=0;
+ if(keys.a){player.vx=-player.speed;player.face=-1}
+ if(keys.d){player.vx=player.speed;player.face=1}
+ if(keys.shift)player.vx*=1.55;
+ player.run=Math.abs(player.vx)>0;
+ player.x+=player.vx;
+ player.x=Math.max(25,Math.min(world-25,player.x));
+
+ player.vy+=.65;
+ player.y+=player.vy;
+ if(player.y+65>=ground()){
+  player.y=ground()-65;player.vy=0;player.grounded=true;
+ }
+
+ player.anim+=dt*(player.run?13:4);
+ player.attack=Math.max(0,player.attack-dt);
+ player.inv=Math.max(0,player.inv-dt);
+ player.mana=Math.min(100,player.mana+4*dt);
+
+ // Enemy AI
+ const dx=player.x-enemy.x;
+ enemy.face=dx>0?1:-1;
+ if(Math.abs(dx)>100)enemy.x+=Math.sign(dx)*(enemy.boss?1.1:1.7);
+ enemy.anim+=dt*5;
+ enemyAttack(dt);
+
+ for(let a of arrows){
+  a.x+=a.vx;
+  if(Math.abs(a.x-enemy.x)<45&&Math.abs(a.y-(enemy.y+25))<65){
+   enemy.hp-=a.damage;a.dead=true;
+   particlesAt(a.x,a.y,a.color,9);
+   shake=a.fire?9:3;
+  }
+ }
+ arrows=arrows.filter(a=>!a.dead&&a.x>0&&a.x<world);
+
+ for(let s of shots){
+  s.x+=s.vx;s.y+=s.vy;
+  if(Math.abs(s.x-player.x)<30&&Math.abs(s.y-(player.y+25))<42){
+   if(player.inv<=0){
+    player.hp-=s.damage;player.inv=.65;shake=9;
+    particlesAt(player.x,player.y,"#ff5260",13);
+   }
+   s.dead=true;
+  }
+ }
+ shots=shots.filter(s=>!s.dead&&s.x>-50&&s.x<world);
+
+ for(let p of particles){
+  p.x+=p.vx;p.y+=p.vy;p.vy+=.1;p.life-=dt;
+ }
+ particles=particles.filter(p=>p.life>0);
+
+ for(let e of effects)e.life-=dt;
+ effects=effects.filter(e=>e.life>0);
+
+ camera=Math.max(0,Math.min(world-W,player.x-W*.4));
+ shake=Math.max(0,shake-dt*30);
+
+ if(enemy.hp<=0){
+  coins+=enemy.boss?100:15;
+  exp+=enemy.boss?120:35;
+  particlesAt(enemy.x,enemy.y,enemy.color,45);
+  if(boss)popup("🏆 BOSS DEFEATED!");
+  else popup("ENEMY DEFEATED!");
+  if(level>=100&&exp>=expNeed){
+   game="win";showEnd("🏆 YOU ARE THE LEGEND!");
+   return;
+  }
+  if(exp>=expNeed){levelUp();return}
+  spawnEnemy();
+ }
+ if(player.hp<=0){
+  game="over";showEnd("GAME OVER");
+ }
+ updateHUD();
+}
+
+function showEnd(title){
+ const screen=document.getElementById("screen");
+ screen.style.display="flex";
+ screen.innerHTML="<h1>"+title+"</h1><p class='muted'>Level: "+level+" | Coins: "+coins+"</p><button onclick='startGame()'>MAIN LAGI</button>";
+}
+
+function background(){
+ let g=ctx.createLinearGradient(0,0,0,H);
+ g.addColorStop(0,"#111c3d");g.addColorStop(1,"#71475c");
+ ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+
+ // Stars
+ for(let i=0;i<70;i++){
+  let x=(i*173-camera*.12)%W;
+  let y=(i*79)%(H*.65);
+  ctx.fillStyle="#dceaff";
+  ctx.globalAlpha=.25+(i%4)*.15;
+  ctx.fillRect(x,y,2,2);
+ }
+ ctx.globalAlpha=1;
+
+ // Parallax mountains
+ for(let layer=0;layer<2;layer++){
+  ctx.fillStyle=layer?"#202b48":"#18233c";
+  let speed=layer?.2:.4;
+  for(let i=0;i<8;i++){
+   let x=i*400-camera*speed%400;
+   ctx.beginPath();
+   ctx.moveTo(x,ground());
+   ctx.lineTo(x+180,ground()-190-(i%3)*35);
+   ctx.lineTo(x+400,ground());
+   ctx.fill();
+  }
+ }
+ ctx.fillStyle="#243d34";ctx.fillRect(0,ground(),W,H-ground());
+ ctx.fillStyle="#70b45d";ctx.fillRect(0,ground(),W,7);
+}
+
+function drawCharacter(x,y,color,face,isBoss,isPlayer,anim){
+ ctx.save();ctx.translate(x,y);
+ ctx.scale(face,1);
+ let bob=Math.sin(anim)*2;
+ let scale=isBoss?1.55:1;
+ ctx.scale(scale,scale);
+
+ // Shadow
+ ctx.fillStyle="#0008";
+ ctx.beginPath();ctx.ellipse(0,68,25,7,0,0,7);ctx.fill();
+
+ // Legs
+ let walk=Math.sin(anim)*7;
+ ctx.strokeStyle="#202333";ctx.lineWidth=11;ctx.lineCap="round";
+ ctx.beginPath();
+ ctx.moveTo(-8,43);ctx.lineTo(-12+walk,65);
+ ctx.moveTo(8,43);ctx.lineTo(12-walk,65);ctx.stroke();
+
+ // Body
+ ctx.fillStyle=color;
+ ctx.fillRect(-16,10+bob,32,38);
+ ctx.strokeStyle="#f4d18b";ctx.lineWidth=2;
+ ctx.strokeRect(-16,10+bob,32,38);
+
+ // Arms
+ ctx.strokeStyle=color;ctx.lineWidth=9;
+ ctx.beginPath();ctx.moveTo(-13,17);ctx.lineTo(-24,35);
+ ctx.moveTo(13,17);ctx.lineTo(25,30);ctx.stroke();
+
+ // Head
+ ctx.fillStyle=isBoss?"#a99aab":"#e6b995";
+ ctx.beginPath();ctx.arc(0,0,13,0,7);ctx.fill();
+ ctx.fillStyle=isBoss?"#26132c":isPlayer?"#d9b14f":"#35263b";
+ ctx.beginPath();ctx.arc(0,-4,13,Math.PI,Math.PI*2);ctx.fill();
+
+ // Eye
+ ctx.fillStyle=isBoss?"#ff3030":"#15151d";
+ ctx.fillRect(5,-2,4,3);
+
+ if(isPlayer){
+  ctx.strokeStyle="#d8a34c";ctx.lineWidth=3;
+  ctx.beginPath();ctx.arc(28,25,17,-1.4,1.4);ctx.stroke();
+  ctx.strokeStyle="#fff1c7";ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(23,9);ctx.lineTo(23,41);ctx.stroke();
+ }else{
+  ctx.strokeStyle=isBoss?"#ffe27c":"#b9c8e4";
+  ctx.lineWidth=isBoss?7:4;
+  ctx.beginPath();ctx.moveTo(23,14);ctx.lineTo(33,50);ctx.stroke();
+ }
+ if(isBoss){
+  ctx.fillStyle=color;
+  ctx.beginPath();
+  ctx.moveTo(-8,-9);ctx.lineTo(-21,-31);ctx.lineTo(-2,-15);
+  ctx.moveTo(8,-9);ctx.lineTo(21,-31);ctx.lineTo(2,-15);
+  ctx.fill();
+  ctx.globalAlpha=.35+Math.sin(anim*2)*.12;
+  ctx.strokeStyle=color;ctx.lineWidth=5;
+  ctx.beginPath();ctx.arc(0,25,43,0,7);ctx.stroke();
+ }
+ ctx.restore();
+}
+
+function draw(){
+ ctx.save();
+ if(shake>0)ctx.translate((Math.random()-.5)*shake,(Math.random()-.5)*shake);
+ background();
+ ctx.save();ctx.translate(-camera,0);
+
+ drawCharacter(player.x,player.y,"#327ce0",player.face,false,true,player.anim);
+ drawCharacter(enemy.x,enemy.y,enemy.color,enemy.face,enemy.boss,false,enemy.anim);
+
+ for(let a of arrows){
+  ctx.fillStyle=a.color;ctx.shadowBlur=15;ctx.shadowColor=a.color;
+  ctx.fillRect(a.x,a.y,a.fire?22:16,a.size);
+  ctx.shadowBlur=0;
+ }
+ for(let s of shots){
+  ctx.fillStyle=s.color;ctx.shadowBlur=14;ctx.shadowColor=s.color;
+  ctx.beginPath();ctx.arc(s.x,s.y,s.size,0,7);ctx.fill();
+  ctx.shadowBlur=0;
+ }
+ for(let p of particles){
+  ctx.globalAlpha=Math.max(0,p.life);
+  ctx.fillStyle=p.color;ctx.beginPath();
+  ctx.arc(p.x,p.y,p.size,0,7);ctx.fill();
+ }
+ ctx.globalAlpha=1;
+
+ for(let e of effects){
+  if(e.type==="lightning"){
+   ctx.strokeStyle="#8af4ff";ctx.lineWidth=7;
+   ctx.shadowBlur=25;ctx.shadowColor="#60eaff";
+   ctx.beginPath();ctx.moveTo(e.x,0);
+   for(let i=0;i<9;i++)ctx.lineTo(e.x+(Math.random()-.5)*65,i*H/9);
+   ctx.stroke();ctx.shadowBlur=0;
+  }
+  if(e.type==="meteor"){
+   ctx.fillStyle="#ff733b";ctx.shadowBlur=30;ctx.shadowColor="#ff4c20";
+   ctx.beginPath();ctx.arc(e.x,ground()-10,30,0,7);ctx.fill();
+   ctx.shadowBlur=0;
+  }
+ }
+ ctx.restore();ctx.restore();
+
+ if(messageTimer>0){
+  messageTimer-=1/60;
+  if(messageTimer<=0)document.getElementById("message").textContent="";
+ }
+}
+
+function loop(now){
+ if(game!=="play")return;
+ const dt=Math.min((now-last)/1000,.04);last=now;
+ update(dt);draw();
+ if(game==="play")requestAnimationFrame(loop);
+}
+
+</script>
+</body>
+</html>
